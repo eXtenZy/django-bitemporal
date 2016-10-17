@@ -1,18 +1,16 @@
-import copy
 from datetime import datetime, timedelta
 
 from django.contrib.contenttypes.models import ContentType
 from django.db import IntegrityError
-from django.db import models, transaction
+from django.db import models
 from django.db.models import Q
 from django.db.models.manager import Manager
 from django.db.models.query import QuerySet
 from django.utils.timezone import now as utcnow
 from django.utils.timezone import utc
 
-
 TIME_CURRENT = datetime.max.replace(tzinfo=utc)
-TIME_RESOLUTION = timedelta(0, 0, 1) # = 1 microsecond
+TIME_RESOLUTION = timedelta(0, 0, 1)  # = 1 microsecond
 
 
 class MasterObject(models.Model):
@@ -30,7 +28,6 @@ class MasterObject(models.Model):
 
 
 class BitemporalQuerySet(QuerySet):
-    @transaction.commit_on_success
     def delete(self):
         for obj in self:
             obj.delete()
@@ -82,34 +79,32 @@ class BitemporalQuerySet(QuerySet):
 
 
 class BitemporalManager(Manager):
-
-    def get_query_set(self):
+    def get_queryset(self):
         return BitemporalQuerySet(self.model, using=self._db)
 
     def during(self, valid_start, valid_end=None):
-        return self.get_query_set().during(valid_start, valid_end)
+        return self.get_queryset().during(valid_start, valid_end)
 
     def active_during(self, txn_start, txn_end=None):
-        return self.get_query_set().active_during(tnx_start, tnx_end)
+        return self.get_queryset().active_during(txn_start, txn_end)
 
     def active(self):
         return self.get_queryset().active()
 
     def current(self):
-        return self.get_query_set().current()
+        return self.get_queryset().current()
 
 
 class BitemporalModelBase(models.Model):
     objects = BitemporalManager()
 
-    # nicht fur der gefingerpoken
     _valid_start_date = models.DateTimeField()
     _valid_end_date = models.DateTimeField(default=TIME_CURRENT)
 
     _txn_start_date = models.DateTimeField(auto_now_add=True)
     _txn_end_date = models.DateTimeField(default=TIME_CURRENT)
 
-    _master = models.ForeignKey(MasterObject, related_name='+')
+    _master = models.ForeignKey(MasterObject, related_name='+', default=None)
 
     @property
     def master(self):
@@ -136,12 +131,8 @@ class BitemporalModelBase(models.Model):
 
     class Meta:
         abstract = True
-        # This is true, but doesn't really help anything, doesn't imply the
-        # non-overlap requirement in active rows
-        # unique_together = [
-        #    ('id', '_valid_start_date', '_valid_end_date', '_txn_end_date'),
-        # ]
-        ordering = ('_valid_start_date', )
+        index_together = ('id', '_valid_start_date', '_valid_end_date', '_txn_end_date')
+        ordering = ('_valid_start_date',)
 
     def _original(self):
         return self.__class__.objects.get(pk=self.pk)
@@ -152,7 +143,7 @@ class BitemporalModelBase(models.Model):
         """
         now = utcnow()
 
-        if self.pk and update_fields and tuple(update_fields) != ('_txn_end_date', ):
+        if self.pk and update_fields and tuple(update_fields) != ('_txn_end_date',):
             raise IntegrityError('Attempted re-save of {} object, pk: {}'.format(
                 self.__class__.__name__, self.pk))
 
@@ -187,22 +178,19 @@ class BitemporalModelBase(models.Model):
             new_master.save()
             self._master = new_master
 
-        # TODO: why save_base and not super().save() (used to be)
         super(BitemporalModelBase, self).save(using=using, force_insert=force_insert,
-                       force_update=force_update, update_fields=update_fields)
+                                              force_update=force_update, update_fields=update_fields)
 
-
-    @transaction.commit_on_success
     def save_during(self, valid_start, valid_end=None, using=None):
         now = utcnow()
         if valid_end is None:
             valid_end = TIME_CURRENT
 
-        # Itterate rows while invalidating them
+        # Iterate rows while invalidating them
         def row_builder(rows):
             for row in rows:
                 row._txn_end_date = now
-                row.save(using=using, update_fields=['_txn_end_date',])
+                row.save(using=using, update_fields=['_txn_end_date', ])
                 yield row
 
         # New objects don't have a master yet
@@ -274,7 +262,6 @@ class BitemporalModelBase(models.Model):
         self._txn_end_date = TIME_CURRENT
         self.save(using=using)
 
-    @transaction.commit_on_success
     def amend(self, as_of=None, using=None):
         """
             Invalidate self
@@ -286,7 +273,7 @@ class BitemporalModelBase(models.Model):
             as_of = now
 
         if self.txn_end_date != TIME_CURRENT:
-            #Raise error, must change an active row
+            # Raise error, must change an active row
             raise IntegrityError('[{}] pk: {} is not an active row'.format(
                 self.__class__.__name__, self.pk))
 
@@ -305,11 +292,11 @@ class BitemporalModelBase(models.Model):
         # Optimized for replacing a single row
         # invalidate previous row
         old_self._txn_end_date = now
-        old_self.save(using=using, update_fields=['_txn_end_date',])
+        old_self.save(using=using, update_fields=['_txn_end_date', ])
 
         # If valid_start == as_of, don't save a new row that covers no time
         # This was an update
-        if old_self.valid_start_date != as_of :
+        if old_self.valid_start_date != as_of:
             # Save new row with updated valid end date
             old_self.pk = None
             old_self._txn_start_date = now
@@ -338,7 +325,6 @@ class BitemporalModelBase(models.Model):
     def eradicate(self, *args, **kwargs):
         return super(BitemporalModelBase, self).delete(*args, **kwargs)
 
-    @transaction.commit_on_success
     def delete(self, as_of=None, using=None):
         """
             Invalidate self
@@ -356,7 +342,7 @@ class BitemporalModelBase(models.Model):
         old_self = self._original()
         old_self._txn_end_date = now
         # invalidate previous row
-        old_self.save(using=using, update_fields=['_txn_end_date',])
+        old_self.save(using=using, update_fields=['_txn_end_date', ])
 
         # Save new row with valid end date
         old_self.pk = None

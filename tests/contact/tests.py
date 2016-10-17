@@ -4,11 +4,10 @@ import time
 from django.contrib.contenttypes.models import ContentType
 from django.db import IntegrityError
 from django.test import TestCase
-from django.utils import unittest
 from django.utils.timezone import now as utcnow
 from django.utils.timezone import utc
 
-from contact import models
+from tests.contact import models
 from bitemporal.models import TIME_CURRENT, TIME_RESOLUTION, MasterObject
 
 
@@ -28,6 +27,7 @@ JohnMaster = None
 AcmeMaster = None
 JaneMaster = None
 SueMaster = None
+
 
 class TestContact(TestCase):
 
@@ -180,12 +180,10 @@ class TestContact(TestCase):
                 _txn_end_date=TIME_CURRENT)
         obj.save()
 
-
     def tearDown(self):
         objs = models.Contact.objects.all()
-        print
+
         for obj in objs:
-            print unicode(obj)
             obj.eradicate()
 
     def test_get_current_john_doe(self):

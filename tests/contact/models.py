@@ -4,6 +4,7 @@ from bitemporal.models import BitemporalModelBase, MasterObject
 
 # Create your models here.
 
+
 class Contact(BitemporalModelBase):
 
     name = models.CharField(max_length=512)

@@ -9,14 +9,14 @@ from django.db.models.query import QuerySet
 from django.utils.timezone import now as utcnow
 from django.utils.timezone import utc
 
-TIME_CURRENT = datetime.max.replace(tzinfo=utc)
+END_OF_TIME = datetime.max.replace(tzinfo=utc)
 TIME_RESOLUTION = timedelta(0, 0, 1)  # = 1 microsecond
 
 
 class MasterObject(models.Model):
     content_type = models.ForeignKey(ContentType)
 
-    def __unicode__(self):
+    def __str__(self):
         return u'{}[{}]'.format(self.content_type, self.pk)
 
     def get_all(self):
@@ -71,7 +71,7 @@ class BitemporalQuerySet(QuerySet):
     def active(self):
         return self.filter(
             # transaction active
-            _txn_end_date=TIME_CURRENT,
+            _txn_end_date=END_OF_TIME,
         )
 
     def current(self):
@@ -99,10 +99,10 @@ class BitemporalModelBase(models.Model):
     objects = BitemporalManager()
 
     _valid_start_date = models.DateTimeField()
-    _valid_end_date = models.DateTimeField(default=TIME_CURRENT)
+    _valid_end_date = models.DateTimeField(default=END_OF_TIME)
 
     _txn_start_date = models.DateTimeField(auto_now_add=True)
-    _txn_end_date = models.DateTimeField(default=TIME_CURRENT)
+    _txn_end_date = models.DateTimeField(default=END_OF_TIME)
 
     _master = models.ForeignKey(MasterObject, related_name='+', default=None)
 
@@ -155,7 +155,7 @@ class BitemporalModelBase(models.Model):
         if self.valid_start_date is None:
             self._valid_start_date = now
 
-        if self.txn_end_date != TIME_CURRENT and self.txn_end_date > now:
+        if self.txn_end_date != END_OF_TIME and self.txn_end_date > now:
             raise IntegrityError('txn_end_date date {} may not be in the future'.format(
                 self.txn_end_date))
 
@@ -168,8 +168,8 @@ class BitemporalModelBase(models.Model):
             raise IntegrityError('txn_start_date date {} must precede txn_end_date {}'.format(
                 self.txn_start_date, self.txn_end_date))
 
-        if self.txn_start_date is None and self.txn_end_date != TIME_CURRENT:
-            raise IntegrityError('txn_end_date {} must be TIME_CURRENT for new transactions'.format(
+        if self.txn_start_date is None and self.txn_end_date != END_OF_TIME:
+            raise IntegrityError('txn_end_date {} must be END_OF_TIME for new transactions'.format(
                 self.txn_end_date))
 
         # Create a new master object if we don't have one already
@@ -183,8 +183,10 @@ class BitemporalModelBase(models.Model):
 
     def save_during(self, valid_start, valid_end=None, using=None):
         now = utcnow()
+
+        # If no valid_end time is provided assume it has no validity ending
         if valid_end is None:
-            valid_end = TIME_CURRENT
+            valid_end = END_OF_TIME
 
         # Iterate rows while invalidating them
         def row_builder(rows):
@@ -211,7 +213,7 @@ class BitemporalModelBase(models.Model):
                     old.pk = None
                     old._valid_end_date = valid_start
                     old._txn_start_date = now
-                    old._txn_end_date = TIME_CURRENT
+                    old._txn_end_date = END_OF_TIME
                     old.save(using=using)
 
                     if resume_through is not None:
@@ -219,7 +221,7 @@ class BitemporalModelBase(models.Model):
                         old.pk = None
                         old._valid_start_date = valid_end
                         old._valid_end_date = resume_through
-                        # txn times still now/TIME_CURRENT
+                        # txn times still now/END_OF_TIME
                         old.save(using=using)
 
                     old = old_rows.next()
@@ -232,7 +234,7 @@ class BitemporalModelBase(models.Model):
                         old.pk = None
                         old._valid_start_date = valid_end
                         old._txn_start_date = now
-                        old._txn_end_date = TIME_CURRENT
+                        old._txn_end_date = END_OF_TIME
                         old.save(using=using)
                     old = old_rows.next()
 
@@ -245,7 +247,7 @@ class BitemporalModelBase(models.Model):
                         old.pk = None
                         old._valid_start_date = valid_end
                         old._txn_start_date = now
-                        old._txn_end_date = TIME_CURRENT
+                        old._txn_end_date = END_OF_TIME
                         old.save(using=using)
 
                     # This will stop the while, not hit the try/except
@@ -259,7 +261,7 @@ class BitemporalModelBase(models.Model):
         self._valid_start_date = valid_start
         self._valid_end_date = valid_end
         self._txn_start_date = now
-        self._txn_end_date = TIME_CURRENT
+        self._txn_end_date = END_OF_TIME
         self.save(using=using)
 
     def amend(self, as_of=None, using=None):
@@ -272,7 +274,7 @@ class BitemporalModelBase(models.Model):
         if as_of is None:
             as_of = now
 
-        if self.txn_end_date != TIME_CURRENT:
+        if self.txn_end_date != END_OF_TIME:
             # Raise error, must change an active row
             raise IntegrityError('[{}] pk: {} is not an active row'.format(
                 self.__class__.__name__, self.pk))
@@ -300,7 +302,7 @@ class BitemporalModelBase(models.Model):
             # Save new row with updated valid end date
             old_self.pk = None
             old_self._txn_start_date = now
-            old_self._txn_end_date = TIME_CURRENT
+            old_self._txn_end_date = END_OF_TIME
             old_self._valid_end_date = as_of
 
             # save change
@@ -310,7 +312,7 @@ class BitemporalModelBase(models.Model):
         self.pk = None
 
         self._txn_start_date = now
-        self._txn_end_date = TIME_CURRENT
+        self._txn_end_date = END_OF_TIME
         self._valid_start_date = as_of
 
         self.save(using=using)
@@ -335,7 +337,7 @@ class BitemporalModelBase(models.Model):
         if as_of is None:
             as_of = now
 
-        if self.valid_end_date != TIME_CURRENT:
+        if self.valid_end_date != END_OF_TIME:
             raise IntegrityError('Cannot delete non-current object')
 
         # Refetch data so we don't update any fields
@@ -347,7 +349,7 @@ class BitemporalModelBase(models.Model):
         # Save new row with valid end date
         old_self.pk = None
         old_self._txn_start_date = now
-        old_self._txn_end_date = TIME_CURRENT
+        old_self._txn_end_date = END_OF_TIME
         old_self._valid_end_date = as_of
 
         # save change

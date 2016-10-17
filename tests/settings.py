@@ -32,7 +32,7 @@ ALLOWED_HOSTS = []
 
 # Application definition
 LOCAL_APPS = [
-    # 'contact.apps.ContactConfig',
+    'contact.apps.ContactConfig',
     'band.apps.BandConfig',
     'artists.apps.ArtistsConfig',
 ]

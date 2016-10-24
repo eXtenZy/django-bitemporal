@@ -202,7 +202,7 @@ class BitemporalModelBase(models.Model):
             try:
                 resume_through = None
 
-                old = old_rows.next()
+                old = next(old_rows)
                 if old.valid_start_date < valid_start:
                     if old.valid_end_date > valid_end:
                         # update inside single larger record
@@ -224,7 +224,7 @@ class BitemporalModelBase(models.Model):
                         # txn times still now/END_OF_TIME
                         old.save(using=using)
 
-                    old = old_rows.next()
+                    old = next(old_rows)
 
                 if old.valid_start_date == valid_start:
                     # Old start is exactly the same, it is being updated and will have no valid period
@@ -236,7 +236,7 @@ class BitemporalModelBase(models.Model):
                         old._txn_start_date = now
                         old._txn_end_date = END_OF_TIME
                         old.save(using=using)
-                    old = old_rows.next()
+                    old = next(old_rows)
 
                 while True:
                     # old.valid_start_date is > valid_start (and < valid_end)
@@ -251,7 +251,7 @@ class BitemporalModelBase(models.Model):
                         old.save(using=using)
 
                     # This will stop the while, not hit the try/except
-                    old = old_rows.next()
+                    old = next(old_rows)
 
             except StopIteration:
                 pass
